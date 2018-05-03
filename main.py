@@ -87,7 +87,7 @@ def find_triangles(image):
     # utils.show(paint)
 
     current_coordinates = np.float32([loc1, loc2, loc3, loc4])
-    expected_coordinates = np.float32([(475, 40), (1360, 40), (60, 920), (1340, 920)]) # 人工确定的四个点的相对位置
+    expected_coordinates = np.float32([(475, 40), (1360, 40), (60, 920), (1340, 920)])  # 人工确定的四个点的相对位置
     return current_coordinates, expected_coordinates
 
 
@@ -137,14 +137,18 @@ def find_lines(image):
     return current_coordinates, expected_coordinates
 
 
-def find_cut(image):
+def find_coordinates(image):
+    return find_triangles(image)
+
+
+def cut(image):
     """
     裁剪出卷面部分并规则化(W,H)
     :param image:标准大小(W,H)的二值化原图
     :return:一个标准大小(W,H)的二值化卷面部分
     """
     origin = image.copy()
-    current_coordinates, expected_coordinates = find_lines(image)
+    current_coordinates, expected_coordinates = find_coordinates(image)
 
     # 透视变化
     transform = cv2.getPerspectiveTransform(current_coordinates, expected_coordinates)
@@ -154,9 +158,14 @@ def find_cut(image):
 
 
 def choice(image):
+    """
+    自动识别卷面图像并生成题块的参数。
+    :param image: 标准化卷面图像
+    :return: 客观题结果
+    """
     left, right, top, bottom = 55, 485, 320, 910  # 人工确定的选择题部分位置
     image = image[top:bottom, left:right]
-    #utils.show(image)
+    # utils.show(image)
     origin = image.copy()
     # paint = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2BGR)
 
@@ -165,11 +174,11 @@ def choice(image):
     image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (10, 10)))  # 平滑填缝
     image = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV)[1]  # 反色
     image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2)))
-    #utils.show(image)
+    # utils.show(image)
     cnts = cv2.findContours(image, cv2.cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[1]  # 找块
 
     blocks = []
-    block = [0] * 13  # 生成一个长度为13的list
+    block = [[]] * 13  # 生成一个长度为13的list
 
     # 找到13个大块
     for cnt in cnts:
@@ -185,36 +194,64 @@ def choice(image):
     block[1], block[12] = sorted(blocks[8:10], key=lambda z: (z[1]))
     block[4], block[7], block[10] = sorted(blocks[10:13], key=lambda z: (z[1]))
 
+    for index, each_block in enumerate(block):
+        num = 4  # num为选项个数
+        if index == 1:
+            num = 7
+        if index == 12:
+            num = 6
+        each_block.extend([5, num])
+    return read_all_blocks(origin, block)
+
+
+def read_all_blocks(image, blocks):
+    """
+    识别所有客观题
+    :param image: 整张卷子的图像
+    :param blocks: 所有题块的参数，是一个list，每个元素都是一个list，包含六个元素分别是题块的x,y,w,h,n,m，其中n是题块中题目数量，m是选项个数
+    :return: 识别结果，一个字符list
+    """
     answer_list = []
-    for i, each_block in enumerate(block):
-        x, y, w, h = each_block
-        for j in range(5):
-            num = 4  # num为选项个数
-            if i == 1:
-                num = 7
-            if i == 12:
-                num = 6
-            w1 = int(w / num)  # 每个选项的宽
-            h1 = int(h / 5)  # 每个选项的高
-            this_image = origin[y+j*h1:y+(j+1)*h1, x:x+w]  # 切出每道题的区域
-            this_image_list = [this_image[:, k*w1:(k+1)*w1] for k in range(num)]  # 切出该题的每个选项区域并列表
-            blackest = [sum(map(sum, x)) for x in this_image_list]  # 通过计算每个选项的像素值的和，来确定填涂的是哪个选项
-            black_mean = np.mean(blackest)
-            choice_index = blackest.index(min(blackest))  # 填涂的项比较黑，所以和是最小的
-            if black_mean - blackest[choice_index] < 5000:
-                answer_list.append('0')
-                # print("INFO: blank detected:" + str(len(answer_list)))
-            else:
-                answer_list.append(chr(ord('A') + choice_index))
+    for index, each_block in enumerate(blocks):
+        x, y, w, h, n, m = each_block
+        this_image = image[y:y + h, x:x + w]
+        answer_list.extend(read_block(this_image, n, m))
     return answer_list
 
 
-if __name__ == "__main__":
+def read_block(image, n, m, thresh=5000):
+    """
+    输入一个题块，识别填涂的选项并返回一个答案list，每一个元素都是字符，除了ABCD之外还有字符0，代表该题未填涂
+    :param image: 输入的题块图像，是一个二维数组
+    :param n: 题块中题目的数量
+    :param m: 题块中题目的选项数量
+    :param thresh: 判断填涂与否的阈值
+    :return: 识别结果字符list
+    """
+    answer_list = []
+    h, w = len(image), len(image[0])
+    h1 = int(h / n)  # 每个选项的高
+    w1 = int(w / m)  # 每个选项的宽
+    for j in range(n):
+        this_image = image[j * h1: (j + 1) * h1, :]  # 切出每道题的区域
+        this_image_list = [this_image[:, k * w1:(k + 1) * w1] for k in range(m)]  # 切出该题的每个选项区域并列表
+        blackest = [sum(map(sum, x)) for x in this_image_list]  # 通过计算每个选项的像素值的和，来确定填涂的是哪个选项
+        black_mean = np.mean(blackest)
+        choice_index = blackest.index(min(blackest))  # 填涂的项比较黑，所以和是最小的
+        if black_mean - blackest[choice_index] < thresh:
+            answer_list.append('0')
+            # print("INFO: blank detected:" + str(len(answer_list)))
+        else:
+            answer_list.append(chr(ord('A') + choice_index))
+    return answer_list
+
+
+def test():
     with open('result.txt', 'w') as f:
         f.write("文件名\t总耗时\t除去I/O操作耗时\t结果\n")
     files = [x for x in os.listdir(root_path)]
     for file in files:
-        #file = '135.jpg'
+        # file = '135.jpg'
         print('Processing ' + file)
         time1 = time.clock()
         img = read_image(file)
@@ -223,7 +260,7 @@ if __name__ == "__main__":
         time2 = time.clock()
         # time.sleep(5)
         img = preprocess(img)
-        img = find_cut(img)
+        img = cut(img)
         ans = choice(img)
         # print(ans)
         time3 = time.clock()
@@ -235,4 +272,20 @@ if __name__ == "__main__":
             for i, x in enumerate(ans):
                 f.write(str(i + 1) + ':' + x + ' ')
             f.write('\n')
-        #break
+            # break
+
+
+def single_test():
+    file = '135.jpg'
+    img = read_image(file)
+    img = preprocess(img)
+    img = cut(img)
+    ans = choice(img)
+
+    for i, x in enumerate(ans):
+        print(str(i + 1) + ':' + x + ' ')
+
+
+if __name__ == "__main__":
+    # test()
+    single_test()
