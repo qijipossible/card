@@ -3,15 +3,28 @@ import numpy as np
 import os
 import time
 
+import utils
+
 root_path = ".\\in\\"
 
 W = 1400
 H = 990
 
+ERROR = "ERROR"
 
 def read_image(file_name):
     image = cv2.imread(root_path + file_name)
     return image
+
+
+def _bytes2image(bytes):
+    pass#todo
+
+
+class Template(object):
+    def __init__(self, template):
+        self.template = template
+        # todo
 
 
 def preprocess(image):
@@ -33,10 +46,25 @@ def preprocess(image):
     return image
 
 
-def find_triangles(image):
+def find_triangle(image, type, size):
+    """
+    找到image中特定三角形的中心位置
+    :param image: 给定的image，是三角附近区域而非整图
+    :param type: 三角形的类型，分为四种，1代表左上，2代表右上，3代表左下，4代表右下
+    :param size: 三角形的大概边长
+    :return: (x, y)
+    """
+    pass#todo
+
+
+def find_2_triangles(image, template):
+    pass # todo
+
+
+def find_4_triangles(image):
     """
     找到四个角上的三角形
-    :param image:
+    :param image: 标准的整张卷面图像
     :return:
     """
     origin = image.copy()
@@ -138,7 +166,7 @@ def find_lines(image):
 
 
 def find_coordinates(image):
-    return find_triangles(image)
+    return find_4_triangles(image)
 
 
 def cut(image):
@@ -246,6 +274,51 @@ def read_block(image, n, m, thresh=5000):
     return answer_list
 
 
+def process_input(input_str):
+    assert isinstance(input_str, str), "input not str"
+    lines = input_str.split("\n")
+    for line in lines:
+        if line.isspace():
+            continue
+        if line.startswith("DataImg"):
+            image_raw = line.split(":")[1]
+        elif line.startswith("Width"):
+            width = line.split(":")[1]
+        elif line.startswith("Height"):
+            height = line.split(":")[1]
+        elif line.startswith("ObjectScanTypeIndex"):
+            object_index = line.split(":")[1]
+        elif line.startswith("QuetionTypeScanIndex"):
+            question_index = line.split(":")[1]
+        elif line.startswith("ParamData"):
+            params = line.split(":")[1]
+        elif line.startswith("ParamLen"):
+            param_len = line.split(":")[1]
+    return image_raw, int(width), int(height), object_index, question_index, params, param_len
+
+
+def process_output():
+    pass
+
+
+def parse_image(image_raw, height, width):
+    assert image_raw is not None, "image is None"
+    image_raw = image_raw.split(",")
+    image = np.array(image_raw).astype(np.uint8)
+    image = np.reshape(image, (height, width))
+    return image
+
+
+def read(image_raw, width, height, object_index, question_index, params, param_len):
+
+    image = parse_image(image_raw, width, height)
+    utils.show(image)
+    # find_2_triangles(image, params)
+    # read_all_blocks(image, blocks=params.blocks)
+    # # read_others()
+    # process_output()
+
+
 def test():
     with open('result.txt', 'w') as f:
         f.write("文件名\t总耗时\t除去I/O操作耗时\t结果\n")
@@ -276,14 +349,18 @@ def test():
 
 
 def single_test():
-    file = '135.jpg'
-    img = read_image(file)
-    img = preprocess(img)
-    img = cut(img)
-    ans = choice(img)
+    with open("test.txt", 'r') as f:
+        lines = f.read()
+    read(*process_input(lines))
 
-    for i, x in enumerate(ans):
-        print(str(i + 1) + ':' + x + ' ')
+
+    # file = '135.jpg'
+    # img = read_image(file)
+    # img = preprocess(img)
+    # img = cut(img)
+    # ans = choice(img)
+    # for i, x in enumerate(ans):
+    #     print(str(i + 1) + ':' + x + ' ')
 
 
 if __name__ == "__main__":
