@@ -12,19 +12,10 @@ H = 990
 
 ERROR = "ERROR"
 
+
 def read_image(file_name):
     image = cv2.imread(root_path + file_name)
     return image
-
-
-def _bytes2image(bytes):
-    pass#todo
-
-
-class Template(object):
-    def __init__(self, template):
-        self.template = template
-        # todo
 
 
 def preprocess(image):
@@ -247,12 +238,13 @@ def read_all_blocks(image, blocks):
     return answer_list
 
 
-def read_block(image, n, m, thresh=5000):
+def read_block(image, n, m, type, thresh=None):
     """
     输入一个题块，识别填涂的选项并返回一个答案list，每一个元素都是字符，除了ABCD之外还有字符0，代表该题未填涂
     :param image: 输入的题块图像，是一个二维数组
     :param n: 题块中题目的数量
     :param m: 题块中题目的选项数量
+    :param type: "1"代表单选, "2"代表多选
     :param thresh: 判断填涂与否的阈值
     :return: 识别结果字符list
     """
@@ -260,17 +252,21 @@ def read_block(image, n, m, thresh=5000):
     h, w = len(image), len(image[0])
     h1 = int(h / n)  # 每个选项的高
     w1 = int(w / m)  # 每个选项的宽
+    if thresh is None:
+        thresh = int(h1*w1*0.73 * 255)
     for j in range(n):
         this_image = image[j * h1: (j + 1) * h1, :]  # 切出每道题的区域
         this_image_list = [this_image[:, k * w1:(k + 1) * w1] for k in range(m)]  # 切出该题的每个选项区域并列表
         blackest = [sum(map(sum, x)) for x in this_image_list]  # 通过计算每个选项的像素值的和，来确定填涂的是哪个选项
-        black_mean = np.mean(blackest)
-        choice_index = blackest.index(min(blackest))  # 填涂的项比较黑，所以和是最小的
-        if black_mean - blackest[choice_index] < thresh:
+        choice_index = [blackest.index(x) for x in blackest if x < thresh]  # 填涂的项比较黑，所以和是最小的
+        this_ans = ""
+        for one_choice_index in choice_index:
+            this_ans += chr(ord('A') + one_choice_index)
+        if this_ans != "":
+            answer_list.append(this_ans)
+        else:
             answer_list.append('0')
             # print("INFO: blank detected:" + str(len(answer_list)))
-        else:
-            answer_list.append(chr(ord('A') + choice_index))
     return answer_list
 
 
@@ -294,7 +290,7 @@ def process_input(input_str):
             params = line.split(":")[1]
         elif line.startswith("ParamLen"):
             param_len = line.split(":")[1]
-    return image_raw, int(width), int(height), object_index, question_index, params, param_len
+    return image_raw, width, height, object_index, question_index, params, param_len
 
 
 def process_output():
@@ -303,49 +299,69 @@ def process_output():
 
 def parse_image(image_raw, height, width):
     assert image_raw is not None, "image is None"
+
     image_raw = image_raw.split(",")
     image = np.array(image_raw).astype(np.uint8)
     image = np.reshape(image, (height, width))
     return image
 
 
+def parse_single_local_param(local_param_raw):
+    tmp = []
+    local_param = local_param_raw.split(" ")
+    assert len(local_param) == 19, "invalid length of local_param:" + local_param_raw
+    tmp.append(int(local_param[0]))
+    tmp.append(int(local_param[1]))
+    tmp.append(((int(local_param[2]), int(local_param[3])), (int(local_param[4]), int(local_param[5]))))
+    tmp.append(((int(local_param[6]), int(local_param[7])), (int(local_param[8]), int(local_param[9]))))
+    tmp.append((int(local_param[10]), int(local_param[11]), int(local_param[12]), int(local_param[13]), int(local_param[14]), int(local_param[15])))
+    tmp.append(int(local_param[16]))
+    tmp.append(int(local_param[17]))
+    tmp.append(int(local_param[18]))
+    return tmp
+
+
+def parse_params(params, param_len):
+    assert isinstance(params, str) and params is not None, "params wrong"
+    assert isinstance(param_len, int), "invalid param length"
+    assert param_len == len(params), "inconsistent param length"
+
+    params = params.split("#")
+    global_param = params[0]
+    local_params = params[1:]
+    print(local_params[-1])
+    if local_params[-1] == "":
+        local_params = local_params[:-1]
+    local_params = [parse_single_local_param(one_local_param) for one_local_param in local_params if one_local_param != ""]
+
+    for i, param in enumerate(local_params):
+        assert len(param) == 8
+        assert i+1 == param[0], "local_param index wrong :"+str(param[0])
+    return global_param, local_params
+
+
 def read(image_raw, width, height, object_index, question_index, params, param_len):
 
-    image = parse_image(image_raw, width, height)
-    utils.show(image)
+    width = int(width)
+    height = int(height)
+
+    image = parse_image(image_raw, height, width)
+    param_len = int(param_len)
+    global_param, local_params = parse_params(params, param_len)
+
+    answers = []
+    for param in local_params:
+        block_image = image[param[3][0][1]:param[3][1][1], param[3][0][0]:param[3][1][0]]
+        if param[1] == 4:
+            answers.extend(read_block(block_image, param[4][0], param[4][1], param[4][2]))
+    # print(answers)
+    # utils.show(image)
+    return answers
+
     # find_2_triangles(image, params)
     # read_all_blocks(image, blocks=params.blocks)
     # # read_others()
     # process_output()
-
-
-def test():
-    with open('result.txt', 'w') as f:
-        f.write("文件名\t总耗时\t除去I/O操作耗时\t结果\n")
-    files = [x for x in os.listdir(root_path)]
-    for file in files:
-        # file = '135.jpg'
-        print('Processing ' + file)
-        time1 = time.clock()
-        img = read_image(file)
-        # ori = img.copy()
-
-        time2 = time.clock()
-        # time.sleep(5)
-        img = preprocess(img)
-        img = cut(img)
-        ans = choice(img)
-        # print(ans)
-        time3 = time.clock()
-
-        cv2.imwrite("out\\" + file, cv2.resize(img, (4200, 2970)))
-        with open('result.txt', 'a') as f:
-            time4 = time.clock()
-            f.write(file + '\t' + str(time4 - time1) + '\t' + str(time3 - time2) + '\t')
-            for i, x in enumerate(ans):
-                f.write(str(i + 1) + ':' + x + ' ')
-            f.write('\n')
-            # break
 
 
 def single_test():
@@ -363,6 +379,34 @@ def single_test():
     #     print(str(i + 1) + ':' + x + ' ')
 
 
+def test():
+    with open('result.txt', 'w') as f:
+        f.write("文件名\t总耗时\t除去I/O操作耗时\t结果\n")
+    files = [x for x in os.listdir(root_path)]
+    for file in files:
+        # file = '135.jpg'
+        print('Processing ' + file)
+        time1 = time.clock()
+        with open(root_path+file, 'r') as f:
+            lines = f.read()
+        # ori = img.copy()
+
+        time2 = time.clock()
+        # time.sleep(5)
+        ans = read(*process_input(lines))
+        # print(ans)
+        time3 = time.clock()
+
+        # cv2.imwrite("out\\" + file, cv2.resize(img, (4200, 2970)))
+        with open('result.txt', 'a') as f:
+            time4 = time.clock()
+            f.write(file + '\t' + str(time4 - time1) + '\t' + str(time3 - time2) + '\t')
+            for i, x in enumerate(ans):
+                f.write(str(i + 1) + ':' + x + ' ')
+            f.write('\n')
+            # break
+
+
 if __name__ == "__main__":
-    # test()
-    single_test()
+    test()
+    # single_test()
