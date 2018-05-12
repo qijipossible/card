@@ -253,7 +253,8 @@ def read_block(image, n, m, type, thresh=None):
     h1 = int(h / n)  # 每个选项的高
     w1 = int(w / m)  # 每个选项的宽
     if thresh is None:
-        thresh = int(h1*w1*0.73 * 255)
+        # todo 这里可以加上图形学处理
+        thresh = int(h1*w1*0.71 * 255)  # 这里的参数代表未填涂选项白色像素占比阈值，过高会导致填涂被识别为未填涂，过低会导致未填涂被识别为填涂
     for j in range(n):
         this_image = image[j * h1: (j + 1) * h1, :]  # 切出每道题的区域
         this_image_list = [this_image[:, k * w1:(k + 1) * w1] for k in range(m)]  # 切出该题的每个选项区域并列表
