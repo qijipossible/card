@@ -3,7 +3,6 @@ import numpy as np
 
 import utils
 
-
 ERROR = "ERROR"
 
 
@@ -62,10 +61,9 @@ def _parse_params(params, param_len):
 
     params = params.split("#")
     global_param = params[0]
+    global_param = global_param.split(" ")
+    global_param = [int(x) for x in global_param]
     local_params = params[1:]
-    print(local_params[-1])
-    if local_params[-1] == "":
-        local_params = local_params[:-1]
     local_params = [_parse_single_local_param(one_local_param) for one_local_param in local_params if
                     one_local_param != ""]
 
@@ -74,6 +72,33 @@ def _parse_params(params, param_len):
         assert i + 1 == param[0], "local_param index wrong :" + str(param[0])
     return global_param, local_params
 
+
+def _where_is(image, mark):
+
+    match_1 = cv2.matchTemplate(image, mark, cv2.TM_SQDIFF)
+    relative_loc = cv2.minMaxLoc(match_1)[2]  # max:2
+    # paint = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    # cv2.rectangle(paint, (relative_loc[0], relative_loc[1]), (relative_loc[0] + mark.shape[1], relative_loc[1] + mark.shape[0]), (0, 0, 255), 2)
+    # utils.show(paint)
+    return relative_loc[0], relative_loc[1]
+
+
+def _calibrate(image, global_params, local_params):
+    x_range = global_params[1]
+    y_range = global_params[0]
+    # 单点校准
+    for param in local_params:
+        if param[1] == 1:
+            search_image = image[param[3][0][1] - x_range:param[3][1][1] + x_range, param[3][0][0] - y_range:param[3][1][0] + y_range]
+            mark = np.zeros((param[3][1][1] - param[3][0][1], param[3][1][0] - param[3][0][0]), dtype=np.uint8)
+            x_bias, y_bias = _where_is(search_image, mark)
+            x_bias = x_range - x_bias
+            y_bias = y_range - y_bias
+            image = cv2.warpAffine(image, np.array([[1,0,x_bias],[0,1,y_bias]], dtype=np.float32), (image.shape[1], image.shape[0]))
+            # utils.show(image)
+            break
+
+    return image
 
 class Reader(object):
     global_params = None
@@ -91,9 +116,8 @@ class Reader(object):
         width = int(width)
         self.std_image = _parse_image(image_raw, height, width)
         param_len = int(param_len)
-        self.global_param, self.local_params = _parse_params(params, param_len)
-        self.std_ans = self.read_one(self.std_image)
-
+        self.global_params, self.local_params = _parse_params(params, param_len)
+        # self.std_ans = self.read_one(self.std_image)
 
     @staticmethod
     def read_block(image, n, m, type, coefficient=None):
@@ -111,15 +135,15 @@ class Reader(object):
         h1 = int(h / n)  # 每个选项的高
         w1 = int(w / m)  # 每个选项的宽
         if coefficient is None:
-            coefficient = 0.84  # 这里的参数代表未填涂选项白色像素占比阈值，过高会导致填涂被识别为未填涂，过低会导致未填涂被识别为填涂
+            coefficient = 0.82  # 这里的参数代表未填涂选项白色像素占比阈值，过高会导致填涂被识别为未填涂，过低会导致未填涂被识别为填涂
 
-        image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
-        thresh = int(h1*w1*coefficient)
+        image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 4)))
+        thresh = int(h1 * w1 * coefficient)
         # utils.show(image)
         for j in range(n):
             this_image = image[j * h1: (j + 1) * h1, :]  # 切出每道题的区域
             this_image_list = [this_image[:, k * w1:(k + 1) * w1] for k in range(m)]  # 切出该题的每个选项区域并列表
-            blackest = [sum(map(sum, x))//255 for x in this_image_list]  # 通过计算每个选项的像素值的和，来确定填涂的是哪个选项
+            blackest = [sum(map(sum, x)) // 255 for x in this_image_list]  # 通过计算每个选项的像素值的和，来确定填涂的是哪个选项
             choice_index = [blackest.index(x) for x in blackest if x < thresh]  # 填涂的项比较黑，所以和是最小的
             this_ans = ""
             for one_choice_index in choice_index:
@@ -133,9 +157,10 @@ class Reader(object):
 
     def read_one(self, image):
         ans = []
+        image = _calibrate(image, self.global_params, self.local_params)
         for param in self.local_params:
-            block_image = image[param[3][0][1]:param[3][1][1], param[3][0][0]:param[3][1][0]]
             if param[1] == 4:
+                block_image = image[param[3][0][1]:param[3][1][1], param[3][0][0]:param[3][1][0]]
+                # utils.show(block_image)
                 ans.extend(self.read_block(block_image, param[4][0], param[4][1], param[4][2]))
         return ans
-
