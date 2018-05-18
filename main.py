@@ -1,3 +1,4 @@
+# coding=utf8
 import cv2
 import numpy as np
 
@@ -5,7 +6,7 @@ import utils
 
 ERROR = "ERROR"
 
-
+# 以下为解析输入参数的方法们
 def _process_input(input_str):
     assert isinstance(input_str, str), "input not str"
     lines = input_str.split("\n")
@@ -73,6 +74,7 @@ def _parse_params(params, param_len):
     return global_param, local_params
 
 
+# 以下为校正图像的方法们
 def _where_is(image, mark):
 
     match_1 = cv2.matchTemplate(image, mark, cv2.TM_SQDIFF)
@@ -100,6 +102,7 @@ def _calibrate(image, global_params, local_params):
 
     return image
 
+
 class Reader(object):
     global_params = None
     local_params = None
@@ -118,6 +121,28 @@ class Reader(object):
         param_len = int(param_len)
         self.global_params, self.local_params = _parse_params(params, param_len)
         # self.std_ans = self.read_one(self.std_image)
+
+    @staticmethod
+    def surround(image):
+        THRESH = 10
+        image = cv2.bitwise_not(image)
+        for i in range(image.shape[0]):
+            if sum(image[i, :]) > THRESH:
+                x1 = i
+                break
+        for i in range(image.shape[0]):
+            if sum(image[-i, :]) > THRESH:
+                x2 = image.shape[0] - i
+                break
+        for i in range(image.shape[1]):
+            if sum(image[i, :]) > THRESH:
+                y1 = i
+                break
+        for i in range(image.shape[1]):
+            if sum(image[i, :]) > THRESH:
+                y2 = image.shape[1] - i
+                break
+        return x1, y1, x2, y2
 
     @staticmethod
     def read_block(image, n, m, type, coefficient=None):
