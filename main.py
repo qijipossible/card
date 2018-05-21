@@ -79,27 +79,40 @@ def _where_is(image, mark):
 
     match_1 = cv2.matchTemplate(image, mark, cv2.TM_SQDIFF)
     relative_loc = cv2.minMaxLoc(match_1)[2]  # max:2
-    # paint = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    # cv2.rectangle(paint, (relative_loc[0], relative_loc[1]), (relative_loc[0] + mark.shape[1], relative_loc[1] + mark.shape[0]), (0, 0, 255), 2)
-    # utils.show(paint)
-    return relative_loc[0], relative_loc[1]
+    # utils.draw_show(image, relative_loc[0], relative_loc[1], relative_loc[0]+5, relative_loc[1]+10)
+    return relative_loc[1], relative_loc[0]
 
 
 def _calibrate(image, global_params, local_params):
     x_range = global_params[1]
     y_range = global_params[0]
-    # 单点校准
+    origin_list = []  # 标记点左上角的坐标
+    current_list = []
+    bias_list = []  # bias_list是每个标记点相对模板位置偏移的距离，如(1,2)表示当前图像需要向下平移1向右平移2
     for param in local_params:
         if param[1] == 1:
-            search_image = image[param[3][0][1] - x_range:param[3][1][1] + x_range, param[3][0][0] - y_range:param[3][1][0] + y_range]
+            origin_list.append((param[3][0][1], param[3][0][0]))
             mark = np.zeros((param[3][1][1] - param[3][0][1], param[3][1][0] - param[3][0][0]), dtype=np.uint8)
+            search_image = image[param[3][0][1] - x_range:param[3][1][1] + x_range, param[3][0][0] - y_range:param[3][1][0] + y_range]
             x_bias, y_bias = _where_is(search_image, mark)
             x_bias = x_range - x_bias
             y_bias = y_range - y_bias
-            image = cv2.warpAffine(image, np.array([[1,0,x_bias],[0,1,y_bias]], dtype=np.float32), (image.shape[1], image.shape[0]))
-            # utils.show(image)
-            break
-
+            current_list.append((param[3][0][1] - x_bias, param[3][0][0] - y_bias))
+            bias_list.append((x_bias, y_bias))
+            if len(bias_list) >= 2:
+                break
+    # 单点：平移
+    matrix = np.array([[1, 0, bias_list[0][0]], [0, 1, bias_list[0][1]]], dtype=np.float32)
+    # 双点：平移+旋转
+    delta_x = current_list[1][0] - current_list[0][0]
+    delta_y = current_list[1][1] - current_list[0][1]
+    cross = np.sqrt(np.sum(np.square([delta_x, delta_y])))
+    alpha = delta_y / cross
+    beta = delta_x / cross
+    matrix = np.array([[alpha, beta, (1-alpha) * current_list[0][0] - beta * current_list[0][1]],
+                       [-beta, alpha, beta * current_list[0][0] + (1 - alpha) * current_list[0][1]]], dtype=np.float32)
+    image = cv2.warpAffine(image, matrix, (image.shape[1], image.shape[0]))
+    utils.draw_show(image, origin_list[0][0], origin_list[0][1], origin_list[0][0]+5, origin_list[0][1]+10)
     return image
 
 
@@ -124,23 +137,28 @@ class Reader(object):
 
     @staticmethod
     def surround(image):
-        THRESH = 10
+        h, w = image.shape
+        THRESHx = h // 10 * 255
+        THRESHy = w // 10 * 255
+        x1 = y1 = 0
+        x2 = h
+        y2 = w
         image = cv2.bitwise_not(image)
-        for i in range(image.shape[0]):
-            if sum(image[i, :]) > THRESH:
+        for i in range(h):
+            if sum(image[i, :]) > THRESHx:
                 x1 = i
                 break
-        for i in range(image.shape[0]):
-            if sum(image[-i, :]) > THRESH:
-                x2 = image.shape[0] - i
+        for i in range(h):
+            if sum(image[-i-1, :]) > THRESHx:
+                x2 = image.shape[0] - i + 1
                 break
-        for i in range(image.shape[1]):
-            if sum(image[i, :]) > THRESH:
+        for i in range(w):
+            if sum(image[:, i]) > THRESHy:
                 y1 = i
                 break
-        for i in range(image.shape[1]):
-            if sum(image[i, :]) > THRESH:
-                y2 = image.shape[1] - i
+        for i in range(w):
+            if sum(image[:, -i-1]) > THRESHy:
+                y2 = image.shape[1] - i + 1
                 break
         return x1, y1, x2, y2
 
@@ -160,7 +178,7 @@ class Reader(object):
         h1 = int(h / n)  # 每个选项的高
         w1 = int(w / m)  # 每个选项的宽
         if coefficient is None:
-            coefficient = 0.82  # 这里的参数代表未填涂选项白色像素占比阈值，过高会导致填涂被识别为未填涂，过低会导致未填涂被识别为填涂
+            coefficient = 0.815  # 这里的参数代表未填涂选项白色像素占比阈值，过高会导致填涂被识别为未填涂，过低会导致未填涂被识别为填涂
 
         image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 4)))
         thresh = int(h1 * w1 * coefficient)
@@ -185,6 +203,7 @@ class Reader(object):
         image = _calibrate(image, self.global_params, self.local_params)
         for param in self.local_params:
             if param[1] == 4:
+                # x1, y1, x2, y2 = self.surround(image[param[2][0][1]:param[2][1][1], param[2][0][0]:param[2][1][0]])
                 block_image = image[param[3][0][1]:param[3][1][1], param[3][0][0]:param[3][1][0]]
                 # utils.show(block_image)
                 ans.extend(self.read_block(block_image, param[4][0], param[4][1], param[4][2]))
