@@ -102,17 +102,19 @@ def _calibrate(image, global_params, local_params):
             if len(bias_list) >= 2:
                 break
     # 单点：平移
-    matrix = np.array([[1, 0, bias_list[0][0]], [0, 1, bias_list[0][1]]], dtype=np.float32)
+    # matrix = np.array([[1, 0, bias_list[0][1]], [0, 1, bias_list[0][0]]], dtype=np.float32)
     # 双点：平移+旋转
     delta_x = current_list[1][0] - current_list[0][0]
     delta_y = current_list[1][1] - current_list[0][1]
     cross = np.sqrt(np.sum(np.square([delta_x, delta_y])))
-    alpha = delta_y / cross
-    beta = delta_x / cross
-    matrix = np.array([[alpha, beta, (1-alpha) * current_list[0][0] - beta * current_list[0][1]],
-                       [-beta, alpha, beta * current_list[0][0] + (1 - alpha) * current_list[0][1]]], dtype=np.float32)
+    alpha = max(delta_x, delta_y) / cross
+    beta = min(delta_x, delta_y) / cross
+    if delta_x > delta_y:
+        beta = -beta
+    matrix = np.array([[alpha, beta, (1-alpha)*current_list[0][1]-beta*current_list[0][0] + bias_list[0][1]], [-beta, alpha, (1-alpha)*current_list[0][0]+beta*current_list[0][1] + bias_list[0][0]]], dtype=np.float32)
+    # 校正
     image = cv2.warpAffine(image, matrix, (image.shape[1], image.shape[0]))
-    utils.draw_show(image, origin_list[0][0], origin_list[0][1], origin_list[0][0]+5, origin_list[0][1]+10)
+    # utils.draw_show(image, origin_list[1][0], origin_list[1][1], origin_list[1][0]+15, origin_list[1][1]+30)
     return image
 
 
@@ -182,7 +184,7 @@ class Reader(object):
 
         image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 4)))
         thresh = int(h1 * w1 * coefficient)
-        # utils.show(image)
+        utils.show(image)
         for j in range(n):
             this_image = image[j * h1: (j + 1) * h1, :]  # 切出每道题的区域
             this_image_list = [this_image[:, k * w1:(k + 1) * w1] for k in range(m)]  # 切出该题的每个选项区域并列表
@@ -201,9 +203,11 @@ class Reader(object):
     def read_one(self, image):
         ans = []
         image = _calibrate(image, self.global_params, self.local_params)
+        # utils.show(image)
         for param in self.local_params:
             if param[1] == 4:
                 # x1, y1, x2, y2 = self.surround(image[param[2][0][1]:param[2][1][1], param[2][0][0]:param[2][1][0]])
+                utils.draw_show(image, param[3][0][1], param[3][0][0], param[3][1][1], param[3][1][0])
                 block_image = image[param[3][0][1]:param[3][1][1], param[3][0][0]:param[3][1][0]]
                 # utils.show(block_image)
                 ans.extend(self.read_block(block_image, param[4][0], param[4][1], param[4][2]))
