@@ -9,29 +9,6 @@ in_path = ".\\in\\"
 out_path = ".\\out\\"
 
 
-def retrive_image(the_tiff, verbose=False):
-    """ Read image from TIFF and return it as an array. """
-    if the_tiff.IsTiled():
-        bits = the_tiff.GetField('BitsPerSample')
-        sample_format = the_tiff.GetField('SampleFormat')
-        typ = the_tiff.get_numpy_type(bits, sample_format)
-        return the_tiff.read_tiles(typ)
-    else:
-        width = the_tiff.GetField('ImageWidth')
-        height = the_tiff.GetField('ImageLength')
-        arr = np.empty((height, width), 'uint8')
-        size = arr.nbytes
-
-        ReadStrip = the_tiff.ReadEncodedStrip
-
-        pos = 0
-        strip_num = the_tiff.NumberOfStrips()
-        for strip in range(strip_num):
-            elem = ReadStrip(strip, arr.ctypes.data, max(size/8 - pos, 0))
-            pos += elem
-        return arr
-
-
 def read_image(file_path):
     image = plt.imread(file_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGRA2GRAY)
@@ -45,12 +22,13 @@ def single_test():
     # reader = Reader(lines)
     # utils.show(reader.std_image)
     # print(reader.std_ans)
-
-    with open("test.txt", 'r') as f:
+    subject = "17-18学年下高2017级文科期中考试政治Ⅰ批"
+    test_path = "./in/"+subject
+    with open(test_path + ".txt", 'r') as f:
         lines = f.read()
     reader = Reader(lines)
     time1 = time.clock()
-    image = read_image("test.tif")
+    image = read_image(test_path + "/1732010207200101_201804280001000004.tif")
     ans = reader.read_one(image)
     time2 = time.clock()
     print(ans)
@@ -61,6 +39,8 @@ def test():
     subjects = [x for x in os.listdir(in_path) if os.path.isfile(os.path.join(in_path, x))]
     for subject_file in subjects:
         subject_name = os.path.splitext(subject_file)[0]
+        # if subject_name != "17-18学年下高2017级文科期中考试政治Ⅰ批":
+        #     continue
         print('Processing ' + subject_name)
 
         time1 = time.clock()
@@ -79,14 +59,14 @@ def test():
             file_path = os.path.join(in_path, subject_name, file)
             image = read_image(file_path)
             time4 = time.clock()
-            # time.sleep(5)
+            # time.sleep(0.573)
             ans = reader.read_one(image)
             time5 = time.clock()
-            print(ans)
+            # print(ans)
 
             # cv2.imwrite("out\\" + file, cv2.resize(img, (4200, 2970)))
             with open(out_path + subject_file, 'a') as f:
-                f.write(os.path.splitext(file)[0] + '\t' + str(time5 - time3) + '\t' + str(time5 - time4) + '\t')
+                f.write(os.path.splitext(file)[0] + '\t' + str(round(time5 - time3, 3)) + '\t' + str(round(time5 - time4, 3)) + '\t')
                 for i, x in enumerate(ans):
                     f.write(str(i + 1) + ':' + x + ' ')
                 f.write('\n')

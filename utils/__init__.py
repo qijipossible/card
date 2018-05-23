@@ -12,6 +12,12 @@ def show(*show_image):
     cv2.waitKey(0)
 
 
+def draw_show(image, x1, y1, x2, y2):
+    paint = cv2.cvtColor(image.copy(), cv2.COLOR_GRAY2BGR)
+    cv2.rectangle(paint, (y1, x1), (y2, x2), (0, 0, 255), 2)
+    show(paint)
+
+
 def fill_whole(image):
     image_copy = image.copy()
     x = len(image)
