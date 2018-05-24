@@ -32,10 +32,11 @@ def _process_input(input_str):
 
 def _parse_image(image_raw, height, width):
     assert image_raw is not None, "image is None"
-
-    image_raw = image_raw.split(",")
+    if isinstance(image_raw, str):
+        image_raw = image_raw.split(",")
     image = np.array(image_raw).astype(np.uint8)
-    image = np.reshape(image, (height, width))
+    if len(image.shape) == 1:
+        image = np.reshape(image, (height, width))
     return image
 
 
@@ -138,8 +139,8 @@ class Reader(object):
         # self.std_ans = self.read_one(self.std_image)
 
     @staticmethod
-    def surround(image):
-        h, w = image.shape
+    def surround(image, h, w):
+        image = _parse_image(image, height=h, width=w)
         THRESHx = h // 10 * 255
         THRESHy = w // 10 * 255
         x1 = y1 = 0
@@ -165,13 +166,13 @@ class Reader(object):
         return x1, y1, x2, y2
 
     @staticmethod
-    def read_block(image, n, m, type, coefficient=None):
+    def _read_block(image, n, m, t, coefficient=None):
         """
         输入一个题块，识别填涂的选项并返回一个答案list，每一个元素都是字符，除了ABCD之外还有字符0，代表该题未填涂
         :param image: 输入的题块图像，是一个二维数组
         :param n: 题块中题目的数量
         :param m: 题块中题目的选项数量
-        :param type: "1"代表单选, "2"代表多选
+        :param t: "1"代表单选, "2"代表多选
         :param coefficient: 判断填涂与否的阈值
         :return: 识别结果字符list
         """
@@ -202,7 +203,11 @@ class Reader(object):
             del this_image
         return answer_list
 
-    def read_one(self, image):
+    @staticmethod
+    def read_block(image, h, w, n, m, t, coefficient=None):
+        return Reader._read_block(_parse_image(image, h, w), n, m, t, coefficient)
+
+    def _read_one(self, image):
         ans = []
         image = _calibrate(image, self.global_params, self.local_params)
         # utils.show(image)
@@ -212,5 +217,8 @@ class Reader(object):
                 # utils.draw_show(image, param[3][0][1], param[3][0][0], param[3][1][1], param[3][1][0])
                 block_image = image[param[3][0][1]:param[3][1][1], param[3][0][0]:param[3][1][0]]
                 # utils.show(block_image)
-                ans.extend(self.read_block(block_image, param[4][0], param[4][1], param[4][2]))
+                ans.extend(self._read_block(block_image, param[4][0], param[4][1], param[4][2]))
         return ans
+
+    def read_one(self, image, h, w):
+        return self._read_one(_parse_image(image, h, w))

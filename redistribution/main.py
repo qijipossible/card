@@ -28,10 +28,11 @@ def _process_input(input_str):
 
 def _parse_image(image_raw, height, width):
     assert image_raw is not None, "image is None"
-
-    image_raw = image_raw.split(",")
+    if isinstance(image_raw, str):
+        image_raw = image_raw.split(",")
     image = np.array(image_raw).astype(np.uint8)
-    image = np.reshape(image, (height, width))
+    if len(image.shape) == 1:
+        image = np.reshape(image, (height, width))
     return image
 
 
@@ -120,8 +121,8 @@ class Reader(object):
         
 
     @staticmethod
-    def surround(image):
-        h, w = image.shape
+    def surround(image, h, w):
+        image = _parse_image(image, height=h, width=w)
         THRESHx = h // 10 * 255
         THRESHy = w // 10 * 255
         x1 = y1 = 0
@@ -147,22 +148,22 @@ class Reader(object):
         return x1, y1, x2, y2
 
     @staticmethod
-    def read_block(image, n, m, type, coefficient=None):
+    def _read_block(image, n, m, t, coefficient=None):
         answer_list = []
         h, w = len(image), len(image[0])
-        h1 = int(h / n)  
-        w1 = int(w / m)  
+        h1 = int(h / n)
+        w1 = int(w / m)
         if coefficient is None:
-            coefficient = 0.815  
+            coefficient = 0.815
 
         image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 4)))
         thresh = int(h1 * w1 * coefficient)
-        
+
         for j in range(n):
-            this_image = image[j * h1: (j + 1) * h1, :]  
-            this_image_list = [this_image[:, k * w1:(k + 1) * w1] for k in range(m)]  
-            blackest = [sum(map(sum, x)) // 255 for x in this_image_list]  
-            choice_index = [blackest.index(x) for x in blackest if x < thresh]  
+            this_image = image[j * h1: (j + 1) * h1, :]
+            this_image_list = [this_image[:, k * w1:(k + 1) * w1] for k in range(m)]
+            blackest = [sum(map(sum, x)) // 255 for x in this_image_list]
+            choice_index = [blackest.index(x) for x in blackest if x < thresh]
             this_image = [["w" + str(W) + "w" + str(H) for W in range(w)] for H in range(h*2)]
             this_ans = ""
             for one_choice_index in choice_index:
@@ -171,19 +172,22 @@ class Reader(object):
                 answer_list.append(this_ans)
             else:
                 answer_list.append('0')
-                
+
             del this_image
         return answer_list
 
-    def read_one(self, image):
+    @staticmethod
+    def read_block(image, h, w, n, m, t, coefficient=None):
+        return Reader._read_block(_parse_image(image, h, w), n, m, t, coefficient)
+
+    def _read_one(self, image):
         ans = []
         image = _calibrate(image, self.global_params, self.local_params)
-        
         for param in self.local_params:
             if param[1] == 4:
-                
-                
                 block_image = image[param[3][0][1]:param[3][1][1], param[3][0][0]:param[3][1][0]]
-                
                 ans.extend(self.read_block(block_image, param[4][0], param[4][1], param[4][2]))
         return ans
+
+    def read_one(self, image, h, w):
+        return self._read_one(_parse_image(image, h, w))

@@ -29,7 +29,7 @@ def single_test():
     reader = Reader(lines)
     time1 = time.clock()
     image = read_image(test_path + "/1732010207200101_201804280001000004.tif")
-    ans = reader.read_one(image)
+    ans = reader._read_one(image)
     time2 = time.clock()
     print(ans)
     print(time2-time1)
@@ -60,7 +60,7 @@ def test():
             image = read_image(file_path)
             time4 = time.clock()
             # time.sleep(0.573)
-            ans = reader.read_one(image)
+            ans = reader._read_one(image)
             time5 = time.clock()
             # print(ans)
 
